@@ -330,4 +330,68 @@ defmodule SpandexDatadog.ApiServerTest do
       assert_received {:put_datadog_spans, ^formatted, ^url, _}
     end
   end
+
+  describe "format/3 with 128-bit trace IDs" do
+    test "formats 128-bit trace ID according to Datadog spec" do
+      large_trace_id = 0x1234567890ABCDEFFEDCBA0987654321
+
+      {:ok, span} =
+        Span.new(
+          id: 123_456_789,
+          start: 1_527_752_052_216_478_000,
+          service: :test_service,
+          name: "test_span",
+          trace_id: large_trace_id,
+          completion_time: 1_527_752_052_216_578_000
+        )
+
+      formatted = ApiServer.format(span, 1, [])
+
+      assert formatted.trace_id == 0xFEDCBA0987654321
+      assert is_integer(formatted.trace_id)
+      assert formatted.meta["_dd.p.tid"] == "1234567890abcdef"
+    end
+
+    test "formats 64-bit trace ID as integer without meta field" do
+      small_trace_id = 4_743_028_846_331_200_905
+
+      {:ok, span} =
+        Span.new(
+          id: 123_456_789,
+          start: 1_527_752_052_216_478_000,
+          service: :test_service,
+          name: "test_span",
+          trace_id: small_trace_id,
+          completion_time: 1_527_752_052_216_578_000
+        )
+
+      formatted = ApiServer.format(span, 1, [])
+
+      assert formatted.trace_id == small_trace_id
+      assert is_integer(formatted.trace_id)
+      refute Map.has_key?(formatted.meta, "_dd.p.tid")
+    end
+
+    test "formatted trace with 128-bit trace ID can be encoded with Msgpax" do
+      large_trace_id = 340_282_366_920_938_463_463_374_607_431_768_211_455
+
+      {:ok, span} =
+        Span.new(
+          id: 123_456_789,
+          start: 1_527_752_052_216_478_000,
+          service: :test_service,
+          name: "test_span",
+          trace_id: large_trace_id,
+          completion_time: 1_527_752_052_216_578_000
+        )
+
+      formatted = ApiServer.format(span, 1, [])
+
+      assert {:ok, _encoded} = Msgpax.pack(formatted)
+
+      assert formatted.trace_id == 18_446_744_073_709_551_615
+      assert is_integer(formatted.trace_id)
+      assert formatted.meta["_dd.p.tid"] == "ffffffffffffffff"
+    end
+  end
 end
