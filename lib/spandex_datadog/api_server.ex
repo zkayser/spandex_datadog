@@ -4,6 +4,8 @@ defmodule SpandexDatadog.ApiServer do
   """
 
   use GenServer
+
+  import Bitwise
   require Logger
 
   alias Spandex.{
@@ -202,8 +204,13 @@ defmodule SpandexDatadog.ApiServer do
 
   @spec format(Span.t(), integer(), Keyword.t()) :: map()
   def format(%Span{} = span, priority, _baggage) do
+    {trace_id, trace_meta} = format_trace_id(span.trace_id)
+
+    base_meta = meta(span)
+    final_meta = Map.merge(base_meta, trace_meta)
+
     %{
-      trace_id: span.trace_id,
+      trace_id: trace_id,
       span_id: span.id,
       name: span.name,
       start: span.start,
@@ -213,7 +220,7 @@ defmodule SpandexDatadog.ApiServer do
       resource: span.resource || span.name,
       service: span.service,
       type: span.type,
-      meta: meta(span),
+      meta: final_meta,
       metrics:
         metrics(span, %{
           _sampling_priority_v1: priority,
@@ -224,6 +231,24 @@ defmodule SpandexDatadog.ApiServer do
   end
 
   # Private Helpers
+
+  @max_64_bit 18_446_744_073_709_551_615
+  defp format_trace_id(trace_id) when trace_id > @max_64_bit do
+    # After converting this lib to generate 128-bit trace IDs, we no longer
+    # can send the full trace ID in the trace_id field.
+    # Read the limitations and the reasoning behind the implementation below
+    # in the `trace_id` field of the API Request Model here https://docs.datadoghq.com/tracing/guide/send_traces_to_agent_by_api/?tab=shell#request
+    lower_64_bits = trace_id &&& @max_64_bit
+    upper_64_bits = trace_id >>> 64
+
+    upper_hex = :io_lib.format("~16.16.0b", [upper_64_bits]) |> to_string()
+
+    {lower_64_bits, %{"_dd.p.tid" => upper_hex}}
+  end
+
+  defp format_trace_id(trace_id) do
+    {trace_id, %{}}
+  end
 
   defp enqueue_trace(state, trace) do
     if state.verbose? do
