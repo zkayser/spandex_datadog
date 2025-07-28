@@ -12,13 +12,17 @@ defmodule SpandexDatadog.Adapter do
     Tracer
   }
 
+  import Bitwise
+
+  # 2 shifted left by 127 == 2 ^ 128
+  @max_trace_id (2 <<< 127) - 1
   @max_id 9_223_372_036_854_775_807
 
   @impl Spandex.Adapter
-  def trace_id(), do: :rand.uniform(@max_id)
+  def trace_id(), do: :rand.uniform(@max_trace_id)
 
   @impl Spandex.Adapter
-  def span_id(), do: trace_id()
+  def span_id(), do: :rand.uniform(@max_id)
 
   @impl Spandex.Adapter
   def now(), do: :os.system_time(:nano_seconds)
